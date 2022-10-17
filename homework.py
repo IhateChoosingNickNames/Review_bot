@@ -173,7 +173,6 @@ def main():
         try:
             current_timestamp: Union[datetime, float] = get_current_time()
             response: FROM_JSON_ANNOTATION = get_api_answer(current_timestamp)
-            print(response)
             checked_response: HW_LIST_ANNOTATION = check_response(response)
             if checked_response:
                 new_message: str = parse_status(checked_response[0])
