@@ -1,4 +1,4 @@
-class YPBotException(Exception):
+class YPBotError(Exception):
     """Кастомное исключение для обработки работы бота."""
 
     def __init__(self, func, message, error=None):
