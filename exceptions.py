@@ -14,7 +14,7 @@ class YPBotException(Exception):
         return f'{self.message} в функции {self.func}'
 
 
-class NoUpdatesError(Exception):
-    """Кастомное исключение обработки отсутствия обновлений."""
+class NotUpdatedError(Exception):
+    """Кастомное исключение для обработки отсутствия обновлений."""
 
     pass

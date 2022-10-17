@@ -1,34 +1,43 @@
 import http
 import logging
 import os
+import sys
 import time
 from datetime import datetime
-from logging.handlers import RotatingFileHandler
+from logging import StreamHandler, getLogger
+from typing import Dict, List, Optional, Type, Union
 
 import requests
-import telegram
 from dotenv import load_dotenv
+from telegram import Bot
 
-from exceptions import NoUpdatesError, YPBotException
+from exceptions import NotUpdatedError, YPBotException
 
 load_dotenv()
 
-PRACTICUM_TOKEN = os.getenv("YP_TOKEN")
-TELEGRAM_TOKEN = os.getenv("BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.getenv("CHAT_ID")
+PRACTICUM_TOKEN: Optional[str] = os.getenv("YP_TOKEN")
+TELEGRAM_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
+TELEGRAM_CHAT_ID: Optional[str] = os.getenv("CHAT_ID")
 
-RETRY_TIME = 5
-ENDPOINT = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
-HEADERS = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
+RETRY_TIME: int = 600
+ENDPOINT: str = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
+HEADERS: Dict[str, str] = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
 
-HOMEWORK_STATUSES = {
+HOMEWORK_STATUSES: Dict[str, str] = {
     "approved": "Работа проверена: ревьюеру всё понравилось. Ура!",
     "reviewing": "Работа взята на проверку ревьюером.",
     "rejected": "Работа проверена: у ревьюера есть замечания.",
 }
 
 
-def send_message(bot, message):
+LOGGER_ANNOTATION = logging.Logger
+SINGLE_HW_ANNOTATION = Dict[str, Union[str, float]]
+HW_LIST_ANNOTATION = List[SINGLE_HW_ANNOTATION]
+FROM_JSON_ANNOTATION = Dict[str, Union[HW_LIST_ANNOTATION, float]]
+TIMESTAMP_ANNOTATION = Union[datetime, float]
+
+
+def send_message(bot: Type[Bot], message: str) -> None:
     """Отправка сообщения от бота в чат пользователя."""
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
@@ -37,13 +46,17 @@ def send_message(bot, message):
         logger.error(error)
 
 
-def get_api_answer(current_timestamp):
+def get_api_answer(
+    current_timestamp: TIMESTAMP_ANNOTATION
+) -> FROM_JSON_ANNOTATION:
     """Получение ответа от АПИ и преобразование в JSON."""
     if isinstance(current_timestamp, datetime):
         current_timestamp = int(current_timestamp.timestamp())
 
-    params = {"from_date": current_timestamp}
-    response = requests.get(ENDPOINT, headers=HEADERS, params=params)
+    params: Dict[str, TIMESTAMP_ANNOTATION] = {"from_date": current_timestamp}
+    response: requests.models.Response = requests.get(
+        ENDPOINT, headers=HEADERS, params=params
+    )
 
     if response.status_code != http.HTTPStatus.OK:
         raise YPBotException(
@@ -58,7 +71,7 @@ def get_api_answer(current_timestamp):
         )
 
 
-def check_response(response):
+def check_response(response: FROM_JSON_ANNOTATION) -> HW_LIST_ANNOTATION:
     """Проверка наличия непустого списка по ключу homeworks."""
     try:
         response["homeworks"][0]
@@ -67,21 +80,21 @@ def check_response(response):
             check_response.__name__, "Ошибка получения записи", error
         )
     except IndexError:
-        raise NoUpdatesError("Новых обновлений нет")
+        raise NotUpdatedError("Новых обновлений нет")
     else:
         return response["homeworks"]
 
 
-def parse_status(homework):
+def parse_status(homework: SINGLE_HW_ANNOTATION) -> str:
     """Формирование сообщения для отправки в чат."""
-    homework_name = homework["homework_name"]
+    homework_name: str = homework["homework_name"]
 
-    homework_status = homework["status"]
-    verdict = HOMEWORK_STATUSES[homework_status]
+    homework_status: str = homework["status"]
+    verdict: str = HOMEWORK_STATUSES[homework_status]
     return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
-def check_tokens():
+def check_tokens() -> bool:
     """Проверка наличия токенов и чат ID.
 
     Обязательные данные для запуска программы.
@@ -91,28 +104,37 @@ def check_tokens():
     return True
 
 
-def get_current_time():
+def get_current_time() -> TIMESTAMP_ANNOTATION:
     """Создание точки отсчета для последующих запросов."""
-    response = requests.get(ENDPOINT, headers=HEADERS, params={"from_date": 0})
+    response: requests.models.Response = requests.get(
+        ENDPOINT, headers=HEADERS, params={"from_date": 0}
+    )
     try:
-        last_homework = response.json()["homeworks"][0]
-        date_ = last_homework["date_updated"]
+        response_json: FROM_JSON_ANNOTATION = response.json()
+        last_homework: SINGLE_HW_ANNOTATION = response_json[
+            "homeworks"
+        ][0]
+        date_: str = last_homework["date_updated"]
         if last_homework["status"] == "approved":
-            return int(datetime.utcnow().timestamp())
+            return response_json["current_date"]
         return datetime.fromisoformat(date_[:-1])
     except Exception:
         return int(datetime.utcnow().timestamp())
 
 
-def get_logger():
+def get_logger() -> logging.Logger:
     """Создание и настройка логгера."""
-    logger = logging.getLogger(__name__)
+    logger: LOGGER_ANNOTATION = getLogger(__name__)
     logger.setLevel(logging.DEBUG)
-    handler = RotatingFileHandler(
-        "main.log", maxBytes=50000000, encoding="utf-8", backupCount=5
+    # Для вывода в файл
+    # handler: Type[logging] = RotatingFileHandler(
+    #     "main.log", maxBytes=50000000, encoding="utf-8", backupCount=5
+    # )
+    handler: logging.StreamHandler = StreamHandler(
+        stream=sys.stdout
     )
-    logger.addHandler(handler)
-    formatter = logging.Formatter(
+    logger.addHandler(hdlr=handler)
+    formatter: logging.Formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     handler.setFormatter(formatter)
@@ -125,35 +147,39 @@ def main():
         logger.critical("Отсутствуют нужные параметры")
         raise YPBotException(main.__name__, "Отсутствуют нужные параметры")
 
-    bot = telegram.Bot(token=TELEGRAM_TOKEN)
-    message = None
-    error_message = None
+    bot: Type[Bot.__class__] = Bot(token=TELEGRAM_TOKEN)
+    message: Optional[str] = None
+    error_message: Optional[str] = None
 
     while True:
         try:
-            current_timestamp = get_current_time()
-            response = get_api_answer(current_timestamp)
-            checked_response = check_response(response)
-            new_message = parse_status(checked_response[0])
+            current_timestamp: Union[datetime, float] = get_current_time()
+            response: FROM_JSON_ANNOTATION = get_api_answer(current_timestamp)
+            checked_response: HW_LIST_ANNOTATION = check_response(response)
+            new_message: str = parse_status(checked_response[0])
             if new_message != message:
                 message = new_message
                 send_message(bot, message)
             else:
-                raise NoUpdatesError
+                raise NotUpdatedError
 
-        except NoUpdatesError as error:
+        except NotUpdatedError as error:
             logger.debug(error)
-            new_error_message = f"{error}"
+            new_error_message: str = f"{error}"
             send_message(bot, new_error_message)
+
         except YPBotException as error:
             logger.error(error, exc_info=True)
-            new_error_message = f"Сбой в работе программы: {error.message}"
+            new_error_message: str = (
+                f"Сбой в работе программы: {error.message}"
+            )
             if new_error_message != error_message:
                 error_message = new_error_message
                 send_message(bot, new_error_message)
+
         except Exception as error:
             logger.critical(f"Непредвиденная ошибка {type(error).__name__}")
-            new_error_message = f"Сбой в работе программы: {error}"
+            new_error_message: str = f"Сбой в работе программы: {error}"
             if new_error_message != error_message:
                 error_message = new_error_message
                 send_message(bot, new_error_message)
@@ -162,5 +188,5 @@ def main():
 
 
 if __name__ == "__main__":
-    logger = get_logger()
+    logger: LOGGER_ANNOTATION = get_logger()
     main()
