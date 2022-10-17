@@ -19,7 +19,7 @@ PRACTICUM_TOKEN: Optional[str] = os.getenv("YP_TOKEN")
 TELEGRAM_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 TELEGRAM_CHAT_ID: Optional[str] = os.getenv("CHAT_ID")
 
-RETRY_TIME: int = 600
+RETRY_TIME: int = 5
 ENDPOINT: str = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
 HEADERS: Dict[str, str] = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
 
@@ -94,7 +94,6 @@ def parse_status(homework: SINGLE_HW_ANNOTATION) -> str:
         raise KeyError("В ответе от АПИ отсутствует ключ homework_name")
     if "status" not in homework:
         raise KeyError("В ответе от АПИ отсутствует ключ status")
-
     homework_name: str = homework["homework_name"]
     homework_status: str = homework["status"]
 
@@ -167,19 +166,22 @@ def main():
     message: Optional[str] = None
     error_message: Optional[str] = None
     new_error_message: Optional[str] = None
+    new_message: Optional[str] = None
     logger.info("Начало логгирования")
 
     while True:
         try:
             current_timestamp: Union[datetime, float] = get_current_time()
             response: FROM_JSON_ANNOTATION = get_api_answer(current_timestamp)
+            print(response)
             checked_response: HW_LIST_ANNOTATION = check_response(response)
-            new_message: str = parse_status(checked_response[0])
+            if checked_response:
+                new_message: str = parse_status(checked_response[0])
             if new_message != message:
                 message = new_message
                 send_message(bot, message)
             else:
-                raise NotUpdatedError("Статус не изменен")
+                raise NotUpdatedError("Нет обновлений")
 
         except NotUpdatedError as error:
             logger.debug(error)
