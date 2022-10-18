@@ -19,7 +19,7 @@ PRACTICUM_TOKEN: Optional[str] = os.getenv("YP_TOKEN")
 TELEGRAM_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 TELEGRAM_CHAT_ID: Optional[str] = os.getenv("CHAT_ID")
 
-RETRY_TIME: int = 500
+RETRY_TIME: int = 5
 ENDPOINT: str = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
 HEADERS: Dict[str, str] = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
 
@@ -40,7 +40,8 @@ TIMESTAMP_ANNOTATION = Union[datetime, float]
 def send_message(bot: Type[Bot], message: str) -> None:
     """Отправка сообщения от бота в чат пользователя."""
     try:
-        bot.send_message(TELEGRAM_CHAT_ID, message)
+        logger.info("Попытка отправки сообщения")
+        bot.send_message(TELEGRAM_CHAT_ID, message + "from IDE")
         logger.info("Сообщение отправлено")
     except Exception as error:
         raise YPBotError(
@@ -49,25 +50,23 @@ def send_message(bot: Type[Bot], message: str) -> None:
 
 
 def get_api_answer(
-    current_timestamp: TIMESTAMP_ANNOTATION
+    current_timestamp: TIMESTAMP_ANNOTATION,
 ) -> FROM_JSON_ANNOTATION:
     """Получение ответа от АПИ и преобразование в JSON."""
     if isinstance(current_timestamp, datetime):
         current_timestamp = int(current_timestamp.timestamp())
 
     params: Dict[str, TIMESTAMP_ANNOTATION] = {"from_date": current_timestamp}
-    payload = {
-        'url': ENDPOINT,
-        'headers': HEADERS,
-        "params": params
-    }
-
-    response: requests.models.Response = requests.get(**payload)
+    payload = {"url": ENDPOINT, "headers": HEADERS, "params": params}
+    try:
+        response: requests.models.Response = requests.get(**payload)
+    except requests.exceptions.RequestException as error:
+        raise YPBotError(
+            get_api_answer.__name__, "Ошибка соединения с АПИ", error
+        )
 
     if response.status_code != http.HTTPStatus.OK:
-        raise YPBotError(
-            get_api_answer.__name__, "Некорретный статус ответа"
-        )
+        raise YPBotError(get_api_answer.__name__, "Некорретный статус ответа")
 
     try:
         return response.json()
@@ -79,7 +78,7 @@ def get_api_answer(
 
 def check_response(response: FROM_JSON_ANNOTATION) -> HW_LIST_ANNOTATION:
     """Проверка наличия непустого списка по ключу homeworks."""
-    if "homeworks" not in response:
+    if not isinstance(response, dict):
         raise TypeError("В ответе отсутствует ключ homeworks")
     if not isinstance(response["homeworks"], list):
         raise YPBotError(
@@ -110,27 +109,20 @@ def check_tokens() -> bool:
 
     Обязательные данные для запуска программы.
     """
-    if not all([TELEGRAM_TOKEN, PRACTICUM_TOKEN, TELEGRAM_CHAT_ID]):
-        return False
-    return True
+    return all([TELEGRAM_TOKEN, PRACTICUM_TOKEN, TELEGRAM_CHAT_ID])
 
 
+# Пока функцию удалять не буду - надо узнать, корректно ли отработает без нее.
 def get_current_time() -> TIMESTAMP_ANNOTATION:
     """Создание точки отсчета для последующих запросов."""
-    payload = {
-        'url': ENDPOINT,
-        'headers': HEADERS,
-        "params": {"from_date": 0}
-    }
+    payload = {"url": ENDPOINT, "headers": HEADERS, "params": {"from_date": 0}}
     response: requests.models.Response = requests.get(**payload)
     try:
         response_json: FROM_JSON_ANNOTATION = response.json()
-        last_homework: SINGLE_HW_ANNOTATION = response_json[
-            "homeworks"
-        ][0]
-        date_: str = last_homework["date_updated"]
+        last_homework: SINGLE_HW_ANNOTATION = response_json["homeworks"][0]
         if last_homework["status"] == "approved":
             return response_json["current_date"]
+        date_: str = last_homework["date_updated"]
         return datetime.fromisoformat(date_[:-1])
     except Exception:
         return int(datetime.utcnow().timestamp())
@@ -144,13 +136,13 @@ def get_logger() -> logging.Logger:
     # handler: Type[logging] = RotatingFileHandler(
     #     __file__ + '.log', maxBytes=50000000, encoding="utf-8", backupCount=5
     # )
-    handler: logging.StreamHandler = StreamHandler(
-        stream=sys.stdout
-    )
+    handler: logging.StreamHandler = StreamHandler(stream=sys.stdout)
     logger.addHandler(hdlr=handler)
     formatter: logging.Formatter = logging.Formatter(
-        ("%(asctime)s - %(name)s - %(levelname)s - %(funcName)s "
-         "- %(lineno)d - %(message)s")
+        (
+            "%(asctime)s - %(name)s - %(levelname)s - %(funcName)s "
+            "- %(lineno)d - %(message)s"
+        )
     )
     handler.setFormatter(formatter)
     return logger
@@ -158,6 +150,7 @@ def get_logger() -> logging.Logger:
 
 def main():
     """Основная логика работы программы."""
+    logger.info("Начало логгирования")
     if not check_tokens():
         logger.critical("Отсутствуют нужные параметры")
         sys.exit("Отсутствуют нужные параметры")
@@ -167,12 +160,18 @@ def main():
     error_message: Optional[str] = None
     new_error_message: Optional[str] = None
     new_message: Optional[str] = None
-    logger.info("Начало логгирования")
+    current_timestamp = int(time.time())
 
     while True:
         try:
-            current_timestamp: Union[datetime, float] = get_current_time()
+            # Добавить в саму функцию логгер нельзя - тесты не видят логгер
+            logger.info("Попытка получения ответа от АПИ")
             response: FROM_JSON_ANNOTATION = get_api_answer(current_timestamp)
+            logger.info("Ответ от АПИ получен")
+            current_timestamp: float = response.get(
+                "current_date", current_timestamp
+            )
+
             checked_response: HW_LIST_ANNOTATION = check_response(response)
             if checked_response:
                 new_message: str = parse_status(checked_response[0])
@@ -192,7 +191,10 @@ def main():
             )
 
         except Exception as error:
-            logger.critical(f"Непредвиденная ошибка {type(error).__name__}")
+            logger.critical(
+                f"Непредвиденная ошибка {type(error).__name__} " f"{error}",
+                exc_info=True,
+            )
             new_error_message: str = f"Сбой в работе программы: {error}"
 
         finally:
