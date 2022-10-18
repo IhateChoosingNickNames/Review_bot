@@ -41,7 +41,7 @@ def send_message(bot: Type[Bot], message: str) -> None:
     """Отправка сообщения от бота в чат пользователя."""
     try:
         logger.info("Попытка отправки сообщения")
-        bot.send_message(TELEGRAM_CHAT_ID, message + "from IDE")
+        bot.send_message(TELEGRAM_CHAT_ID, message + " from Heroku")
         logger.info("Сообщение отправлено")
     except Exception as error:
         raise YPBotError(
@@ -77,9 +77,15 @@ def get_api_answer(
 
 
 def check_response(response: FROM_JSON_ANNOTATION) -> HW_LIST_ANNOTATION:
-    """Проверка наличия непустого списка по ключу homeworks."""
+    """Проверка соответствия ответа от АПИ ожидаемым параметрам."""
     if not isinstance(response, dict):
-        raise TypeError("В ответе отсутствует ключ homeworks")
+        raise TypeError("Ответ приходит не в виде словаря")
+    keys = ["homeworks", "current_date"]
+    for key in keys:
+        if key not in response:
+            raise YPBotError(
+                check_response.__name__, f"В ответе отсутствует ключ {key}"
+            )
     if not isinstance(response["homeworks"], list):
         raise YPBotError(
             check_response.__name__, "По ключу homeworks доступен не список"
@@ -133,7 +139,7 @@ def get_logger() -> logging.Logger:
     logger: LOGGER_ANNOTATION = getLogger(__name__)
     logger.setLevel(logging.DEBUG)
     # Для вывода в файл
-    # handler: Type[logging] = RotatingFileHandler(
+    # handler: logging.StreamHandler = RotatingFileHandler(
     #     __file__ + '.log', maxBytes=50000000, encoding="utf-8", backupCount=5
     # )
     handler: logging.StreamHandler = StreamHandler(stream=sys.stdout)
