@@ -19,7 +19,7 @@ PRACTICUM_TOKEN: Optional[str] = os.getenv("YP_TOKEN")
 TELEGRAM_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 TELEGRAM_CHAT_ID: Optional[str] = os.getenv("CHAT_ID")
 
-RETRY_TIME: int = 500
+RETRY_TIME: int = 100
 ENDPOINT: str = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
 HEADERS: Dict[str, str] = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
 
@@ -31,10 +31,10 @@ HOMEWORK_VERDICTS: Dict[str, str] = {
 
 
 LOGGER_ANNOTATION = logging.Logger
-SINGLE_HW_ANNOTATION = Dict[str, Union[str, float]]
+SINGLE_HW_ANNOTATION = Dict[str, Union[str, int]]
 HW_LIST_ANNOTATION = List[SINGLE_HW_ANNOTATION]
-FROM_JSON_ANNOTATION = Dict[str, Union[HW_LIST_ANNOTATION, float]]
-TIMESTAMP_ANNOTATION = Union[datetime, float]
+FROM_JSON_ANNOTATION = Dict[str, Union[HW_LIST_ANNOTATION, int]]
+TIMESTAMP_ANNOTATION = Union[datetime, int]
 
 
 def send_message(bot: Type[Bot], message: str) -> None:
@@ -166,7 +166,7 @@ def main():
     error_message: Optional[str] = None
     new_error_message: Optional[str] = None
     new_message: Optional[str] = None
-    current_timestamp = int(time.time())
+    current_timestamp = get_current_time()
 
     while True:
         try:
@@ -174,7 +174,7 @@ def main():
             logger.info("Попытка получения ответа от АПИ")
             response: FROM_JSON_ANNOTATION = get_api_answer(current_timestamp)
             logger.info("Ответ от АПИ получен")
-            current_timestamp: float = response.get(
+            current_timestamp: int = response.get(
                 "current_date", current_timestamp
             )
 
@@ -198,7 +198,7 @@ def main():
 
         except Exception as error:
             logger.critical(
-                f"Непредвиденная ошибка {type(error).__name__} " f"{error}",
+                f"Непредвиденная ошибка {type(error).__name__} {error}",
                 exc_info=True,
             )
             new_error_message: str = f"Сбой в работе программы: {error}"
