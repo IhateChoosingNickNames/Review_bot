@@ -19,7 +19,7 @@ PRACTICUM_TOKEN: Optional[str] = os.getenv("YP_TOKEN")
 TELEGRAM_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 TELEGRAM_CHAT_ID: Optional[str] = os.getenv("CHAT_ID")
 
-RETRY_TIME: int = 100
+RETRY_TIME: int = 500
 ENDPOINT: str = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
 HEADERS: Dict[str, str] = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
 
@@ -41,7 +41,7 @@ def send_message(bot: Type[Bot], message: str) -> None:
     """Отправка сообщения от бота в чат пользователя."""
     try:
         logger.info("Попытка отправки сообщения")
-        bot.send_message(TELEGRAM_CHAT_ID, message + " from Heroku")
+        bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.info("Сообщение отправлено")
     except Exception as error:
         raise YPBotError(
