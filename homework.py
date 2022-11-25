@@ -5,11 +5,13 @@ import sys
 import time
 from datetime import datetime
 from logging import StreamHandler, getLogger
+from logging.handlers import RotatingFileHandler
 from typing import Dict, List, Optional, Type, Union
 
 import requests
 from dotenv import load_dotenv
-from telegram import Bot
+import telegram
+
 
 from exceptions import NotUpdatedError, YPBotError
 
@@ -19,7 +21,7 @@ PRACTICUM_TOKEN: Optional[str] = os.getenv("YP_TOKEN")
 TELEGRAM_TOKEN: Optional[str] = os.getenv("BOT_TOKEN")
 TELEGRAM_CHAT_ID: Optional[str] = os.getenv("CHAT_ID")
 
-RETRY_TIME: int = 500
+RETRY_PERIOD: int = 600
 ENDPOINT: str = "https://practicum.yandex.ru/api/user_api/homework_statuses/"
 HEADERS: Dict[str, str] = {"Authorization": f"OAuth {PRACTICUM_TOKEN}"}
 
@@ -37,13 +39,14 @@ FROM_JSON_ANNOTATION = Dict[str, Union[HW_LIST_ANNOTATION, int]]
 TIMESTAMP_ANNOTATION = Union[datetime, int]
 
 
-def send_message(bot: Type[Bot], message: str) -> None:
+def send_message(bot: Type[telegram.Bot], message: str) -> None:
     """Отправка сообщения от бота в чат пользователя."""
     try:
         logger.info("Попытка отправки сообщения")
         bot.send_message(TELEGRAM_CHAT_ID, message)
-        logger.info("Сообщение отправлено")
+        logger.debug("Сообщение отправлено")
     except Exception as error:
+        logger.error("Сообщение отправлено")
         raise YPBotError(
             send_message.__name__, "Ошибка в работе Телеграма", error=error
         )
@@ -87,7 +90,7 @@ def check_response(response: FROM_JSON_ANNOTATION) -> HW_LIST_ANNOTATION:
                 check_response.__name__, f"В ответе отсутствует ключ {key}"
             )
     if not isinstance(response["homeworks"], list):
-        raise YPBotError(
+        raise TypeError(
             check_response.__name__, "По ключу homeworks доступен не список"
         )
     return response["homeworks"]
@@ -161,7 +164,7 @@ def main():
         logger.critical("Отсутствуют нужные параметры")
         sys.exit("Отсутствуют нужные параметры")
 
-    bot: Type[Bot.__class__] = Bot(token=TELEGRAM_TOKEN)
+    bot: Type[telegram.Bot.__class__] = telegram.Bot(token=TELEGRAM_TOKEN)
     message: Optional[str] = None
     error_message: Optional[str] = None
     new_error_message: Optional[str] = None
@@ -211,9 +214,9 @@ def main():
                 except YPBotError as error:
                     logger.error(error, exc_info=True)
 
-            time.sleep(RETRY_TIME)
+            time.sleep(RETRY_PERIOD)
 
-
+logger: LOGGER_ANNOTATION = get_logger()
 if __name__ == "__main__":
-    logger: LOGGER_ANNOTATION = get_logger()
+
     main()
